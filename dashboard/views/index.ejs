@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Creator Bot Admin</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="container">
+  <h1>Creator Bot SaaS — Admin</h1>
+  <div class="nav">
+    <a href="/admin/guilds" class="btn">Guilds</a>
+    <form action="/admin/logout" method="post" style="display:inline"><button class="btn btn-sm">Logout</button></form>
+  </div>
+
+  <h2>All Guilds</h2>
+  <table>
+    <tr><th>Guild ID</th><th>Plan</th><th>Members</th><th>Created</th><th>Actions</th></tr>
+    <% guilds.forEach(g => { %>
+      <tr>
+        <td><%= g.guild_id %></td>
+        <td><span class="badge badge-<%= g.plan %>"><%= g.plan %></span></td>
+        <td><%= g.member_count %></td>
+        <td><%= new Date(g.created_at).toLocaleString() %></td>
+        <td><a href="/admin/guild/<%= g.guild_id %>" class="btn btn-sm">Manage</a></td>
+      </tr>
+    <% }) %>
+  </table>
+</div>
+</body>
+</html>

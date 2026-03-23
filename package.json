@@ -1,0 +1,16 @@
+{
+  "name": "creator-bot",
+  "version": "2.0.0",
+  "description": "Discord bot for OnlyFans/creator community management (SaaS multi-tenant)",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --watch bot.js",
+    "migrate": "psql -f migrations/001_initial_schema.sql"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "pg": "^8.11.3",
+    "dotenv": "^16.4.5"
+  }
+}
