@@ -14,19 +14,3 @@ services:
         value: "1480980406118383636"
       - key: OWNER_ID
         value: "210752730539622410"
-
-  - name: apex-dashboard
-    env: node
-    region: oregon
-    plan: free
-    buildCommand: cd dashboard && npm install
-    startCommand: cd dashboard && node index.js
-    envVars:
-      - key: BOT_TOKEN
-        sync: false
-      - key: CLIENT_ID
-        value: "1485251474102550628"
-      - key: DATABASE_URL
-        value: "sqlite:./creator-bot.db"
-      - key: SESSION_SECRET
-        generateValue: true
