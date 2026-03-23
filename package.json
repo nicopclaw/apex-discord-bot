@@ -5,12 +5,11 @@
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
-    "dev": "node --watch bot.js",
-    "migrate": "psql -f migrations/001_initial_schema.sql"
+    "dev": "node --watch bot.js"
   },
   "dependencies": {
+    "better-sqlite3": "^11.7.0",
     "discord.js": "^14.15.3",
-    "pg": "^8.11.3",
     "dotenv": "^16.4.5"
   }
 }
