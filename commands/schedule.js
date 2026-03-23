@@ -14,8 +14,7 @@ module.exports = {
         .setRequired(true))
     .addChannelOption(opt =>
       opt.setName('channel')
-        .setDescription('Channel to send to (defaults to current)')
-        .setChannelTypes([0])),
+        .setDescription('Channel to send to (defaults to current)'))
 
   async execute(interaction, db) {
     const content = interaction.options.getString('message');
