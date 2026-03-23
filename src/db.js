@@ -1,11 +1,58 @@
-const { Pool } = require('pg');
 const fs = require('fs');
+const path = require('path');
+const Database = require('better-sqlite3');
 require('dotenv').config();
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, '..', 'creator-bot.db');
+const db = new Database(DB_PATH);
+
+// Enable WAL mode for better concurrency
+db.pragma('journal_mode = WAL');
+
+// Initialize schema
+db.exec(`
+  CREATE TABLE IF NOT EXISTS guilds (
+    guild_id TEXT PRIMARY KEY,
+    plan TEXT DEFAULT 'free',
+    stripe_customer_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS tiers (
+    guild_id TEXT,
+    tier_name TEXT,
+    role_id TEXT,
+    price REAL,
+    description TEXT,
+    PRIMARY KEY (guild_id, tier_name)
+  );
+
+  CREATE TABLE IF NOT EXISTS members (
+    guild_id TEXT,
+    user_id TEXT,
+    tier TEXT,
+    joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (guild_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS config (
+    guild_id TEXT,
+    key TEXT,
+    value TEXT,
+    PRIMARY KEY (guild_id, key)
+  );
+
+  CREATE TABLE IF NOT EXISTS scheduled_posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT,
+    channel_id TEXT,
+    content TEXT,
+    post_at DATETIME,
+    sent INTEGER DEFAULT 0,
+    created_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
 /**
  * Guild-scoped database wrapper.
@@ -16,132 +63,115 @@ class GuildDB {
     this.guildId = guildId;
   }
 
-  async query(sql, params = []) {
-    // Inject guild_id as first parameter if query expects it
-    // This is a simple approach; for complex queries, include $1 as guild_id in the SQL.
-    const result = await pool.query(sql, params);
-    return result;
-  }
-
   // Guild settings
-  async getGuild() {
-    const res = await pool.query(
-      'SELECT * FROM guilds WHERE guild_id = $1',
-      [this.guildId]
-    );
-    return res.rows[0];
+  getGuild() {
+    const stmt = db.prepare('SELECT * FROM guilds WHERE guild_id = ?');
+    return stmt.get(this.guildId);
   }
 
-  async setPlan(plan) {
-    const res = await pool.query(
-      'UPDATE guilds SET plan = $1 WHERE guild_id = $2 RETURNING *',
-      [plan, this.guildId]
+  setPlan(plan) {
+    const stmt = db.prepare(
+      'INSERT INTO guilds (guild_id, plan) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET plan = ?'
     );
-    return res.rows[0];
+    return stmt.run(this.guildId, plan, plan);
   }
 
-  async setStripeCustomerId(customerId) {
-    await pool.query(
-      'UPDATE guilds SET stripe_customer_id = $1 WHERE guild_id = $2',
-      [customerId, this.guildId]
+  setStripeCustomerId(customerId) {
+    const stmt = db.prepare(
+      'INSERT INTO guilds (guild_id, stripe_customer_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET stripe_customer_id = ?'
     );
+    return stmt.run(this.guildId, customerId, customerId);
   }
 
-  async getSettings() {
-    const res = await pool.query(
-      'SELECT value FROM config WHERE guild_id = $1 AND key = $2',
-      [this.guildId, 'settings']
-    );
-    return res.rows[0] ? JSON.parse(res.rows[0].value) : {};
+  getSettings() {
+    const stmt = db.prepare('SELECT value FROM config WHERE guild_id = ? AND key = ?');
+    const row = stmt.get(this.guildId, 'settings');
+    return row ? JSON.parse(row.value) : {};
   }
 
-  async setSettings(settings) {
-    await pool.query(
-      'INSERT INTO config (guild_id, key, value) VALUES ($1, $2, $3) ON CONFLICT (guild_id, key) DO UPDATE SET value = $3',
-      [this.guildId, 'settings', JSON.stringify(settings)]
+  setSettings(settings) {
+    const stmt = db.prepare(
+      'INSERT INTO config (guild_id, key, value) VALUES (?, ?, ?) ON CONFLICT(guild_id, key) DO UPDATE SET value = ?'
     );
+    return stmt.run(this.guildId, 'settings', JSON.stringify(settings), JSON.stringify(settings));
   }
 
   // Tiers
-  async listTiers() {
-    const res = await pool.query(
-      'SELECT tier_name, role_id, price, description FROM tiers WHERE guild_id = $1',
-      [this.guildId]
+  listTiers() {
+    const stmt = db.prepare(
+      'SELECT tier_name, role_id, price, description FROM tiers WHERE guild_id = ?'
     );
-    return res.rows;
+    return stmt.all(this.guildId);
   }
 
-  async upsertTier(tier) {
+  upsertTier(tier) {
     const { tier_name, role_id, price, description } = tier;
-    await pool.query(
+    const stmt = db.prepare(
       `INSERT INTO tiers (guild_id, tier_name, role_id, price, description)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (guild_id, tier_name) DO UPDATE SET
-         role_id = EXCLUDED.role_id,
-         price = EXCLUDED.price,
-         description = EXCLUDED.description`,
-      [this.guildId, tier_name, role_id, price, description]
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(guild_id, tier_name) DO UPDATE SET
+         role_id = excluded.role_id,
+         price = excluded.price,
+         description = excluded.description`
     );
+    return stmt.run(this.guildId, tier_name, role_id, price, description);
   }
 
-  async deleteTier(tierName) {
-    await pool.query(
-      'DELETE FROM tiers WHERE guild_id = $1 AND tier_name = $2',
-      [this.guildId, tierName]
+  deleteTier(tierName) {
+    const stmt = db.prepare(
+      'DELETE FROM tiers WHERE guild_id = ? AND tier_name = ?'
     );
+    return stmt.run(this.guildId, tierName);
   }
 
   // Members
-  async setMemberTier(userId, tier) {
-    await pool.query(
-      `INSERT INTO members (guild_id, user_id, tier) VALUES ($1, $2, $3)
-       ON CONFLICT (guild_id, user_id) DO UPDATE SET tier = $3`,
-      [this.guildId, userId, tier]
+  setMemberTier(userId, tier) {
+    const stmt = db.prepare(
+      `INSERT INTO members (guild_id, user_id, tier) VALUES (?, ?, ?)
+       ON CONFLICT(guild_id, user_id) DO UPDATE SET tier = ?`
     );
+    return stmt.run(this.guildId, userId, tier, tier);
   }
 
-  async getMember(userId) {
-    const res = await pool.query(
-      'SELECT * FROM members WHERE guild_id = $1 AND user_id = $2',
-      [this.guildId, userId]
+  getMember(userId) {
+    const stmt = db.prepare(
+      'SELECT * FROM members WHERE guild_id = ? AND user_id = ?'
     );
-    return res.rows[0];
+    return stmt.get(this.guildId, userId);
   }
 
-  async listMembers() {
-    const res = await pool.query(
-      'SELECT user_id, tier, joined_at FROM members WHERE guild_id = $1',
-      [this.guildId]
+  listMembers() {
+    const stmt = db.prepare(
+      'SELECT user_id, tier, joined_at FROM members WHERE guild_id = ?'
     );
-    return res.rows;
+    return stmt.all(this.guildId);
   }
 
   // Scheduled posts
-  async addScheduledPost({ channelId, content, postAt, createdBy }) {
-    const res = await pool.query(
+  addScheduledPost({ channelId, content, postAt, createdBy }) {
+    const stmt = db.prepare(
       `INSERT INTO scheduled_posts (guild_id, channel_id, content, post_at, created_by)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [this.guildId, channelId, content, postAt, createdBy]
+       VALUES (?, ?, ?, ?, ?)`
     );
-    return res.rows[0].id;
+    const result = stmt.run(this.guildId, channelId, content, postAt, createdBy);
+    return result.lastInsertRowid;
   }
 
-  async getPendingPosts() {
-    const res = await pool.query(
+  getPendingPosts() {
+    const stmt = db.prepare(
       `SELECT id, channel_id, content, post_at, created_by
        FROM scheduled_posts
-       WHERE guild_id = $1 AND sent = FALSE AND post_at <= NOW()
-       ORDER BY post_at ASC`,
-      [this.guildId]
+       WHERE guild_id = ? AND sent = 0 AND post_at <= datetime('now')
+       ORDER BY post_at ASC`
     );
-    return res.rows;
+    return stmt.all(this.guildId);
   }
 
-  async markPostSent(postId) {
-    await pool.query(
-      'UPDATE scheduled_posts SET sent = TRUE WHERE guild_id = $1 AND id = $2',
-      [this.guildId, postId]
+  markPostSent(postId) {
+    const stmt = db.prepare(
+      'UPDATE scheduled_posts SET sent = 1 WHERE guild_id = ? AND id = ?'
     );
+    return stmt.run(this.guildId, postId);
   }
 }
 
@@ -150,12 +180,6 @@ function forGuild(guildId) {
   return new GuildDB(guildId);
 }
 
-// Test connection on startup
-pool.connect()
-  .then(() => console.log('Postgres connected'))
-  .catch(err => {
-    console.error('Postgres connection error:', err);
-    process.exit(1);
-  });
+console.log('SQLite connected:', DB_PATH);
 
-module.exports = { pool, GuildDB, forGuild };
+module.exports = { db, GuildDB, forGuild };

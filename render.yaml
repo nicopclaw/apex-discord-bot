@@ -15,3 +15,5 @@ services:
         value: "1480980406118383636"
       - key: OWNER_ID
         value: "210752730539622410"
+      - key: DATABASE_PATH
+        value: "./creator-bot.db"
