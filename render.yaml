@@ -1,13 +1,14 @@
 services:
-  - name: apex-bot
-    env: node
+  - type: web
+    runtime: node
+    name: apex-bot
     region: oregon
     plan: free
     buildCommand: npm install
     startCommand: node bot.js
     envVars:
       - key: BOT_TOKEN
-        value: "YOUR_BOT_TOKEN_HERE"
+        sync: false
       - key: CLIENT_ID
         value: "1485251474102550628"
       - key: GUILD_ID
