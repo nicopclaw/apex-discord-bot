@@ -1,11 +1,10 @@
 services:
   - name: apex-bot
-    env: Node
+    env: node
     region: oregon
     plan: free
     buildCommand: npm install
     startCommand: node bot.js
-    healthCheckPath: /
     envVars:
       - key: BOT_TOKEN
         sync: false
@@ -17,26 +16,17 @@ services:
         value: "210752730539622410"
 
   - name: apex-dashboard
-    env: Node
+    env: node
     region: oregon
     plan: free
     buildCommand: cd dashboard && npm install
     startCommand: cd dashboard && node index.js
-    healthCheckPath: /
     envVars:
       - key: BOT_TOKEN
         sync: false
       - key: CLIENT_ID
         value: "1485251474102550628"
       - key: DATABASE_URL
-        fromDatabase:
-          name: apex-db
-          property: connectionString
+        value: "sqlite:./creator-bot.db"
       - key: SESSION_SECRET
         generateValue: true
-
-databases:
-  - name: apex-db
-    plan: free
-    databaseName: apex_bot
-    ipAllowList: []
