@@ -7,7 +7,7 @@ services:
     startCommand: node bot.js
     envVars:
       - key: BOT_TOKEN
-        sync: false
+        value: "YOUR_BOT_TOKEN_HERE"
       - key: CLIENT_ID
         value: "1485251474102550628"
       - key: GUILD_ID
